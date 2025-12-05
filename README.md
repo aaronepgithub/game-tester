@@ -12,7 +12,7 @@ This application connects to an ANT+ heart rate monitor using a USB stick and br
 
 1. Install the required dependencies:
 ```bash
-pip install openant bleak
+pip install -r requirements.txt
 ```
 
 2. Make sure your ANT+ USB stick is plugged in and accessible by the system.
@@ -59,7 +59,7 @@ The application has the following configurable parameters:
 1. The application initializes an ANT+ node using the openant library
 2. It opens a channel to listen specifically for your heart rate monitor's device ID
 3. When heart rate data is received via ANT+, it stores the value
-4. Simultaneously, it creates a BLE peripheral using the bleak library
+4. Simultaneously, it creates a BLE peripheral using the bless library (which works cross-platform including Windows 11)
 5. The stored heart rate value is broadcasted via the standard BLE Heart Rate Measurement characteristic
 6. Any BLE client can connect and receive real-time heart rate updates
 
