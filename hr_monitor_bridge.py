@@ -36,7 +36,7 @@ class HeartRateMonitorBridge:
             ant_device_id: The ANT+ device ID of your heart rate monitor
             ant_network_key: The ANT+ network key (default is for ANT+ public network)
         """
-        self.ant_device_id = ant_device_id
+        self.ant_device_id = 22184
         self.ant_network_key = ant_network_key
         self.ant_node = None
         self.ant_driver = None
