@@ -17,9 +17,10 @@ from openant.easy.node import Node
 from openant.easy.channel import Channel
 from openant.base.message import Message
 from openant.easy.filter import wait_for_event
-from bleson import get_provider, Advertisement, UUID16, UUID128, BDAddress
-from bleson.interfaces.gatt import GATTService, GATTCharacteristic
-from bleson.logger import log
+from bless import BlessServer, BlessGATTService, BlessGATTCharacteristic
+from bless.backends.server import GATTAttributePermissions
+from bless.backends.server import GATTCharacteristicProperties
+import uuid
 
 
 # Configure logging
@@ -91,57 +92,48 @@ class HeartRateMonitorBridge:
     
     async def start_bluetooth_server(self):
         """Start the Bluetooth LE server to broadcast heart rate data."""
-        # Get the Bluetooth adapter
-        adapter = get_provider().get_adapter()
+        # Create a new Bless server
+        server = BlessServer(name="HRM-Bridge")
         
-        # Create heart rate service (0x180D) with heart rate measurement characteristic (0x2A37)
-        heart_rate_service = GATTService(
-            UUID16(0x180D),  # Heart Rate Service
-            [
-                GATTCharacteristic(
-                    UUID16(0x2A37),  # Heart Rate Measurement
-                    properties=0x10,  # NOTIFY
-                    value=b'\x00'
-                )
-            ]
+        # Define UUIDs for Heart Rate Service and Characteristic
+        heart_rate_service_uuid = "0000180D-0000-1000-8000-00805F9B34FB"  # Heart Rate Service
+        heart_rate_measurement_uuid = "00002A37-0000-1000-8000-00805F9B34FB"  # Heart Rate Measurement
+        
+        # Create the heart rate service
+        heart_rate_service = BlessGATTService(heart_rate_service_uuid)
+        
+        # Create the heart rate measurement characteristic
+        heart_rate_char = BlessGATTCharacteristic(
+            uuid=heart_rate_measurement_uuid,
+            properties=GATTCharacteristicProperties.notify,
+            permissions=GATTAttributePermissions.readable
         )
         
-        # Set the services to the adapter
-        adapter.set_services([heart_rate_service])
+        # Add the characteristic to the service
+        heart_rate_service.add_characteristic(heart_rate_char)
         
-        # Configure advertising data
-        advertisement = Advertisement()
-        advertisement.name = "HRM-Bridge"
-        advertisement.service_uuids = [UUID16(0x180D)]  # Heart Rate Service
+        # Add the service to the server
+        server.add_service(heart_rate_service)
         
-        adapter.advertising_data = advertisement
+        # Subscribe to notifications (though we'll push data from our side)
+        def on_update_requested(characteristic: BlessGATTCharacteristic, value: bytearray):
+            logger.debug(f"Update requested for characteristic {characteristic}")
         
-        # Start advertising
-        adapter.start_advertising()
+        server.subscribe(heart_rate_measurement_uuid, on_update_requested)
+        
+        # Start the server
+        await server.start()
         logger.info("Bluetooth LE peripheral started and advertising as Heart Rate Monitor")
         
+        # Store the server and characteristic for later use
+        self.bluetooth_server = server
+        self.heart_rate_characteristic = heart_rate_char
+        
         # Main loop to broadcast heart rate data
-        await self.broadcast_loop()
+        await self.broadcast_loop(server, heart_rate_char)
     
-    async def broadcast_loop(self):
+    async def broadcast_loop(self, server, heart_rate_char):
         """Main loop to broadcast heart rate data via Bluetooth LE."""
-        # Get the Bluetooth adapter to access the characteristics
-        adapter = get_provider().get_adapter()
-        
-        # Find the heart rate measurement characteristic
-        hr_measurement_char = None
-        for service in adapter.services:
-            if service.uuid.to_uuid16() == 0x180D:  # Heart Rate Service
-                for characteristic in service.characteristics:
-                    if characteristic.uuid.to_uuid16() == 0x2A37:  # Heart Rate Measurement
-                        hr_measurement_char = characteristic
-                        break
-                break
-        
-        if not hr_measurement_char:
-            logger.error("Could not find heart rate measurement characteristic")
-            return
-        
         while True:
             if self.current_heart_rate > 0:
                 # Create heart rate measurement data following Bluetooth SIG specification
@@ -155,8 +147,8 @@ class HeartRateMonitorBridge:
                 hr_data = struct.pack('<BB', flags, self.current_heart_rate)
                 
                 try:
-                    # Update the characteristic value
-                    hr_measurement_char.value = hr_data
+                    # Update the characteristic value using Bless API
+                    await server.update_value(heart_rate_char.uuid, hr_data)
                     logger.debug(f"Updated heart rate characteristic: {self.current_heart_rate} BPM")
                 except Exception as e:
                     logger.error(f"Error updating heart rate characteristic: {e}")
